@@ -1,46 +1,55 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from openai import OpenAI
-from dotenv import load_dotenv
+from fastapi import FastAPI, Request
 import os
+from dotenv import load_dotenv
+from openai import OpenAI
+import pinecone
 
-# 🔐 API Key laden
+# 🌱 Load environment variables from .env
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_api_key = os.getenv("OPENAI_API_KEY")
+pinecone_api_key = os.getenv("PINECONE_API_KEY")
+pinecone_env = os.getenv("PINECONE_ENV")
+pinecone_index_name = os.getenv("PINECONE_INDEX")
 
+# 🤖 OpenAI client
+client = OpenAI(api_key=openai_api_key)
+
+# 📦 Pinecone setup
+pinecone.init(api_key=pinecone_api_key, environment=pinecone_env)
+index = pinecone.Index(pinecone_index_name)
+
+# ⚙️ FastAPI app
 app = FastAPI()
 
-# CORS = extern toegang toestaan (voor Zapier)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 🧾 Input-model
-class IngestPayload(BaseModel):
-    id: str
-    title: str
-    content: str
-
-# 📥 POST endpoint
 @app.post("/ingest")
-async def ingest(payload: IngestPayload):
-    full_text = f"{payload.title}\n{payload.content}"
+async def ingest(request: Request):
+    data = await request.json()
 
-    # 🧠 Embedding via OpenAI 1.x
+    # ✅ Extract data
+    item_id = data.get("id")
+    title = data.get("title", "")
+    content = data.get("content", "")
+    full_text = f"{title}\n{content}"
+
+    # 🧠 Maak embedding aan via OpenAI
     response = client.embeddings.create(
-        input=full_text,
-        model="text-embedding-ada-002"
+        model="text-embedding-3-large",
+        input=full_text
     )
 
-    vector = response.data[0].embedding
+    embedding = response.data[0].embedding
 
-    print(f"Ingested '{payload.title}' → {len(vector)} dims")
+    # 📤 Verstuur embedding naar Pinecone
+    index.upsert([
+        {
+            "id": item_id,
+            "values": embedding,
+            "metadata": {
+                "title": title,
+                "text": content
+            }
+        }
+    ])
 
-    return {
-        "status": "ok",
-        "vector_dim": len(vector)
-    }
+    return {"status": "ok", "vector_dim": len(embedding)}
+
