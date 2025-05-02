@@ -1,115 +1,93 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from openai import OpenAI
-from pinecone import Pinecone, ServerlessSpec
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 import os
-import requests
+import openai
+import pinecone
 import uuid
+import logging
 
-# Load environment variables
+# Laad .env
 load_dotenv()
 
-# Init FastAPI
+# Logging
+logging.basicConfig(level=logging.INFO)
+
+# Init Pinecone en OpenAI
+pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment=os.getenv("PINECONE_ENVIRONMENT"))
+index = pinecone.Index(os.getenv("PINECONE_INDEX"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
+EMBED_MODEL = "text-embedding-3-large"
+
+# Start app
 app = FastAPI()
 
-# Init Pinecone
-pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
-
-# Create index if it doesn't exist
-index_name = os.environ.get("PINECONE_INDEX")
-if index_name not in pc.list_indexes().names():
-    pc.create_index(
-        name=index_name,
-        dimension=3072,
-        metric="cosine",
-        spec=ServerlessSpec(
-            cloud="aws",
-            region="us-east-1"  # pas aan als je regio anders is
-        )
-    )
-
-index = pc.Index(index_name)
-
-# Init OpenAI
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-
-# Models
+# --- Request modellen ---
 class IngestRequest(BaseModel):
     title: str
     text: str
 
 class QueryRequest(BaseModel):
     query: str
-    top_k: int = 5
 
-@app.get("/")
-def read_root():
-    return {"status": "up"}
+# --- Routes ---
 
 @app.post("/ingest")
-def ingest(req: IngestRequest):
-    # Embed de tekst
-    embedding = client.embeddings.create(
-        input=req.text,
-        model="text-embedding-3-large"
-    ).data[0].embedding
+async def ingest(request: Request):
+    try:
+        body = await request.json()
+        logging.info(f"Ontvangen data: {body}")
+        data = IngestRequest(**body)
+    except ValidationError as ve:
+        logging.error(f"Validatiefout: {ve}")
+        raise HTTPException(status_code=422, detail="Invoer is niet geldig. Vereist: 'title' en 'text' als strings.")
+    except Exception as e:
+        logging.error(f"Algemene fout bij lezen JSON: {e}")
+        raise HTTPException(status_code=400, detail="Ongeldige JSON structuur.")
 
-    # Voeg toe aan Pinecone
-    index.upsert([{
-        "id": str(uuid.uuid4()),
-        "values": embedding,
-        "metadata": {
-            "title": req.title,
-            "text": req.text
-        }
-    }])
+    # Embedding maken
+    try:
+        response = openai.embeddings.create(
+            input=data.text,
+            model=EMBED_MODEL
+        )
+        vector = response.data[0].embedding
+        logging.info("Embedding succesvol aangemaakt.")
+    except Exception as e:
+        logging.error(f"Fout bij OpenAI embedding: {e}")
+        raise HTTPException(status_code=500, detail="Fout bij het genereren van de embedding.")
 
-    return {"status": "ingested", "title": req.title}
+    # Upsert naar Pinecone
+    try:
+        pinecone_id = str(uuid.uuid4())
+        index.upsert([
+            (pinecone_id, vector, {"title": data.title, "text": data.text})
+        ])
+        logging.info(f"Succesvol opgeslagen in Pinecone met ID {pinecone_id}")
+        return {"status": "ok", "id": pinecone_id}
+    except Exception as e:
+        logging.error(f"Fout bij Pinecone upsert: {e}")
+        raise HTTPException(status_code=500, detail="Fout bij opslaan in Pinecone.")
+
 
 @app.post("/query")
-def query(req: QueryRequest):
-    # Embed de vraag
-    embedding = client.embeddings.create(
-        input=req.query,
-        model="text-embedding-3-large"
-    ).data[0].embedding
+async def query(req: QueryRequest):
+    try:
+        embedding_response = openai.embeddings.create(
+            input=req.query,
+            model=EMBED_MODEL
+        )
+        query_vector = embedding_response.data[0].embedding
 
-    # Zoek in Pinecone
-    results = index.query(
-        vector=embedding,
-        top_k=req.top_k,
-        include_metadata=True
-    )
+        pinecone_response = index.query(
+            vector=query_vector,
+            top_k=5,
+            include_metadata=True
+        )
 
-    # Bouw context op uit metadata
-    context = "\n---\n".join([
-        match["metadata"].get("text", "")
-        for match in results["matches"]
-    ])
+        matches = pinecone_response.get('matches', [])
+        return {"matches": matches}
 
-    # Bouw prompt
-    prompt = f"""Je bent een AI-assistent die helpt bij het beantwoorden van technische vragen op basis van projectnotities.
-Gebruik alleen de onderstaande context om de vraag te beantwoorden. Als het antwoord niet in de context staat, zeg dan dat je het niet weet.
-
-Context:
-{context}
-
-Vraag:
-{req.query}
-
-Antwoord:"""
-
-    # Vraag GPT-4 om antwoord
-    completion = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2
-    )
-
-    return {
-        "answer": completion.choices[0].message.content,
-        "context_used": context,
-        "query": req.query
-    }
-
+    except Exception as e:
+        logging.error(f"Fout bij query: {e}")
+        raise HTTPException(status_code=500, detail="Fout tijdens query.")
