@@ -31,7 +31,7 @@ async def ingest(request: Request):
 
     # 🎯 Embedding maken via OpenAI
     response = client.embeddings.create(
-        model="text-embedding-3-large",
+        model="text-embedding-ada-002",
         input=full_text
     )
     embedding = response.data[0].embedding
