@@ -22,7 +22,11 @@ EMBEDDING_MODEL = "text-embedding-3-large"
 # --- Request modellen ---
 class IngestRequest(BaseModel):
     title: str
-    content: str  # <-- aangepast van 'text'
+    problem: str
+    solution: str
+    machine: str
+    type: str
+    project: str
 
 class QueryRequest(BaseModel):
     query: str
@@ -32,18 +36,18 @@ class QueryRequest(BaseModel):
 async def ingest(data: IngestRequest):
     try:
         logging.info(f"Ontvangen data: {data}")
+
+        embedding_input = f"Title: {data.title}\nProblem: {data.problem}\nSolution: {data.solution}\nMachine: {data.machine}\nType: {data.type}\nProject: {data.project}"
+
         embedding = openai.embeddings.create(
-            input=f"{data.title}\n{data.content}",
+            input=embedding_input,
             model=EMBEDDING_MODEL
         ).data[0].embedding
 
         index.upsert(vectors=[{
             "id": data.title.replace(" ", "_"),
             "values": embedding,
-            "metadata": {
-                "title": data.title,
-                "text": data.content
-            }
+            "metadata": data.model_dump()
         }])
         return {"status": "success"}
     except Exception as e:
@@ -64,7 +68,7 @@ async def query(data: QueryRequest):
         if result.matches:
             best = result.matches[0].metadata
             return {
-                "antwoord": f'De melding "{best["title"]}" is inderdaad gevonden in de documentatie, maar er is geen verdere uitleg van detail over wat de storing inhoudt of hoe deze opgelost moet worden.\n\nHiervoor raad ik aan contact op te nemen met de MRP of een specialist die meer inzicht heeft.\n\nWil je dat ik ook zoek naar algemene meldingen met dit type storing?',
+                "antwoord": f"Beste match:\n\nTitel: {best['title']}\n\nProbleem: {best['problem']}\nOplossing: {best['solution']}\n\nMachine: {best['machine']} | Type: {best['type']} | Project: {best['project']}",
                 "score": result.matches[0].score,
                 "metadata": best
             }
@@ -73,4 +77,5 @@ async def query(data: QueryRequest):
     except Exception as e:
         logging.error(f"Fout tijdens query: {e}")
         return {"error": str(e)}
+
 
