@@ -1,45 +1,42 @@
 from fastapi import FastAPI, Request
-import os
-from dotenv import load_dotenv
 from openai import OpenAI
-import pinecone
+from pinecone import Pinecone
+from dotenv import load_dotenv
+import os
 
-# 🌱 Load environment variables from .env
+# 🔄 .env variabelen laden
 load_dotenv()
+
 openai_api_key = os.getenv("OPENAI_API_KEY")
 pinecone_api_key = os.getenv("PINECONE_API_KEY")
-pinecone_env = os.getenv("PINECONE_ENV")
 pinecone_index_name = os.getenv("PINECONE_INDEX")
 
-# 🤖 OpenAI client
+# 🧠 OpenAI client aanmaken
 client = OpenAI(api_key=openai_api_key)
 
-# 📦 Pinecone setup
-pinecone.init(api_key=pinecone_api_key, environment=pinecone_env)
-index = pinecone.Index(pinecone_index_name)
+# 🌲 Pinecone client (nieuwe SDK)
+pc = Pinecone(api_key=pinecone_api_key)
+index = pc.Index(pinecone_index_name)
 
-# ⚙️ FastAPI app
+# 🚀 FastAPI app
 app = FastAPI()
 
 @app.post("/ingest")
 async def ingest(request: Request):
     data = await request.json()
-
-    # ✅ Extract data
     item_id = data.get("id")
     title = data.get("title", "")
     content = data.get("content", "")
     full_text = f"{title}\n{content}"
 
-    # 🧠 Maak embedding aan via OpenAI
+    # 🎯 Embedding maken via OpenAI
     response = client.embeddings.create(
         model="text-embedding-3-large",
         input=full_text
     )
-
     embedding = response.data[0].embedding
 
-    # 📤 Verstuur embedding naar Pinecone
+    # 💾 Upsert naar Pinecone
     index.upsert([
         {
             "id": item_id,
@@ -51,5 +48,5 @@ async def ingest(request: Request):
         }
     ])
 
-    return {"status": "ok", "vector_dim": len(embedding)}
+    return {"status": "ok"}
 
