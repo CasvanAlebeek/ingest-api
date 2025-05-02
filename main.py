@@ -3,7 +3,7 @@ from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 import os
 import openai
-import pinecone
+from pinecone import Pinecone
 import uuid
 import logging
 
@@ -14,8 +14,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # Init Pinecone en OpenAI
-pinecone.init(api_key=os.getenv("PINECONE_API_KEY"), environment=os.getenv("PINECONE_ENVIRONMENT"))
-index = pinecone.Index(os.getenv("PINECONE_INDEX"))
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index(os.getenv("PINECONE_INDEX"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
 EMBED_MODEL = "text-embedding-3-large"
 
