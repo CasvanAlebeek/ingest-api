@@ -38,8 +38,8 @@ async def ingest(data: IngestRequest):
     try:
         logging.info(f"Ontvangen data: {data}")
         combined_text = f"{data.title}\n{data.problem}\n{data.solution}\n{data.machine}\n{data.type}\n{data.project}"
-        if data.lijn:
-            combined_text += f"\n{data.lijn}"
+        if data.line:
+            combined_text += f"\n{data.line}"
 
         embedding = openai.embeddings.create(
             input=combined_text,
