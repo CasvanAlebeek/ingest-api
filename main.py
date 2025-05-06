@@ -1,10 +1,10 @@
 import os
-from fastapi import FastAPI, Request
+import logging
+from fastapi import FastAPI
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from openai import OpenAI
-import logging
 
 # --- Setup ---
 load_dotenv()
@@ -27,6 +27,7 @@ class IngestRequest(BaseModel):
     machine: str
     type: str
     project: str
+    lijn: str | None = None  # optioneel
 
 class QueryRequest(BaseModel):
     query: str
@@ -36,19 +37,21 @@ class QueryRequest(BaseModel):
 async def ingest(data: IngestRequest):
     try:
         logging.info(f"Ontvangen data: {data}")
-
-        embedding_input = f"Title: {data.title}\nProblem: {data.problem}\nSolution: {data.solution}\nMachine: {data.machine}\nType: {data.type}\nProject: {data.project}"
+        combined_text = f"{data.title}\n{data.problem}\n{data.solution}\n{data.machine}\n{data.type}\n{data.project}"
+        if data.lijn:
+            combined_text += f"\n{data.lijn}"
 
         embedding = openai.embeddings.create(
-            input=embedding_input,
+            input=combined_text,
             model=EMBEDDING_MODEL
         ).data[0].embedding
 
         index.upsert(vectors=[{
             "id": data.title.replace(" ", "_"),
             "values": embedding,
-            "metadata": data.model_dump()
+            "metadata": data.dict()
         }])
+
         return {"status": "success"}
     except Exception as e:
         logging.error(f"Fout tijdens ingest: {e}")
@@ -68,7 +71,7 @@ async def query(data: QueryRequest):
         if result.matches:
             best = result.matches[0].metadata
             return {
-                "antwoord": f"Beste match:\n\nTitel: {best['title']}\n\nProbleem: {best['problem']}\nOplossing: {best['solution']}\n\nMachine: {best['machine']} | Type: {best['type']} | Project: {best['project']}",
+                "antwoord": f'Melding gevonden: "{best["title"]}".\n\nProbleem: {best["problem"]}\n\nOplossing: {best["solution"]}',
                 "score": result.matches[0].score,
                 "metadata": best
             }
@@ -77,5 +80,6 @@ async def query(data: QueryRequest):
     except Exception as e:
         logging.error(f"Fout tijdens query: {e}")
         return {"error": str(e)}
+
 
 
