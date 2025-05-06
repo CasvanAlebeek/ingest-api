@@ -27,7 +27,7 @@ class IngestRequest(BaseModel):
     machine: str
     type: str
     project: str
-    lijn: str | None = None  # optioneel
+    line: str | None = None  # optioneel
 
 class QueryRequest(BaseModel):
     query: str
