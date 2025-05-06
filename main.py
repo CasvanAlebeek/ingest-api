@@ -63,7 +63,7 @@ async def query(data: QueryRequest):
             model=EMBEDDING_MODEL
         ).data[0].embedding
 
-        result = index.query(vector=embedding, top_k=1, include_metadata=True)
+        result = index.query(vector=embedding, top_k=5, include_metadata=True)
 
         if result.matches:
             best = result.matches[0].metadata
