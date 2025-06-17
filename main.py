@@ -37,7 +37,10 @@ class QueryRequest(BaseModel):
 async def ingest(data: IngestRequest):
     try:
         logging.info(f"Ontvangen data: {data}")
-        combined_text = f"{data.title}\n{data.problem}\n{data.solution}\n{data.machine}\n{data.type}\n{data.project}"
+        combined_text = (
+            f"{data.title}\n{data.problem}\n{data.solution}\n"
+            f"{data.machine}\n{data.type}\n{data.project}"
+        )
         if data.line:
             combined_text += f"\n{data.line}"
 
@@ -71,7 +74,11 @@ async def query(data: QueryRequest):
         if result.matches:
             best = result.matches[0].metadata
             return {
-                "antwoord": f'Melding gevonden: "{best["title"]}".\n\nProbleem: {best["problem"]}\n\nOplossing: {best["solution"]}',
+                "antwoord": (
+                    f'Melding gevonden: "{best["title"]}".\n\n'
+                    f'Probleem: {best["problem"]}\n\n'
+                    f'Oplossing: {best["solution"]}'
+                ),
                 "score": result.matches[0].score,
                 "metadata": best
             }
@@ -80,6 +87,3 @@ async def query(data: QueryRequest):
     except Exception as e:
         logging.error(f"Fout tijdens query: {e}")
         return {"error": str(e)}
-
-
-
