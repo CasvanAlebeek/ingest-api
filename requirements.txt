@@ -4,3 +4,4 @@ openai
 python-dotenv
 pinecone
 requests
+httpx
